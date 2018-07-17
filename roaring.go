@@ -9,8 +9,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 )
 
@@ -134,6 +136,12 @@ func (rb *Bitmap) UnmarshalBinary(data []byte) error {
 	reader := bufio.NewReader(&buf)
 	_, err = rb.ReadFrom(reader)
 	return err
+}
+
+// UnmarshalBinaryUnsafe unmarshals from data using direct references to underlying array.
+// For use with mmap. Do not mutate slice after calling this method.
+func (rb *Bitmap) UnmarshalBinaryUnsafe(data []byte) error {
+	return rb.highlowcontainer.unmarshalBinaryUnsafe(data)
 }
 
 // NewBitmap creates a new empty Bitmap (see also New)
@@ -1382,3 +1390,5 @@ func (rb *Bitmap) Stats() Statistics {
 	}
 	return stats
 }
+
+func hexdump(data []byte) { fmt.Fprintln(os.Stderr, hex.Dump(data)) }

@@ -741,6 +741,83 @@ func (ra *roaringArray) readFrom(stream io.Reader) (int64, error) {
 	return int64(pos), nil
 }
 
+func (ra *roaringArray) unmarshalBinaryUnsafe(data []byte) (err error) {
+	if len(data) < 4 {
+		return fmt.Errorf("error in roaringArray.unmarshalBinaryUnsafe: could not read initial cookie")
+	}
+	cookie := binary.LittleEndian.Uint32(data)
+	data = data[4:]
+
+	var size uint32
+	var haveRunContainers bool
+	var isRun *bitmapContainer
+	if cookie&0x0000FFFF == serialCookie {
+		haveRunContainers = true
+		size = uint32(uint16(cookie>>16) + 1)
+		bytesToRead := (int(size) + 7) / 8
+		numwords := (bytesToRead + 7) / 8
+		if len(data) < bytesToRead {
+			return fmt.Errorf("error in unmarshalBinaryUnsafe: could not read the "+
+				"runContainer bit flags of length %v bytes", bytesToRead)
+		}
+		by := make([]byte, numwords*8)
+		copy(by[:bytesToRead], data)
+		data = data[bytesToRead:]
+		isRun = newBitmapContainer()
+		isRun.bitmap = byteSliceAsUint64Slice(by[:8*numwords])
+	} else if cookie == serialCookieNoRunContainer {
+		if len(data) < 4 {
+			return fmt.Errorf("error in roaringArray.unmarshalBinaryUnsafe: short buffer when reading size")
+		}
+		size, data = binary.LittleEndian.Uint32(data), data[4:]
+	} else {
+		return fmt.Errorf("error in roaringArray.unmarshalBinaryUnsafe: did not find expected serialCookie in header")
+	}
+	if size > (1 << 16) {
+		return fmt.Errorf("It is logically impossible to have more than (1<<16) containers.")
+	}
+
+	// descriptive header
+	if len(data) < int(2*2*size) {
+		return fmt.Errorf("error in roaringArray.unmarshalBinaryUnsafe: short buffer when reading descriptive header")
+	}
+	var keycard []uint16
+	if size > 0 {
+		keycard, data = byteSliceAsUint16Slice(data[:2*2*size]), data[2*2*size:]
+	}
+
+	// offset header
+	if !haveRunContainers || size >= noOffsetThreshold {
+		data = data[4*size:]
+	}
+
+	for i := uint32(0); i < size; i++ {
+		key := int(keycard[2*i])
+		card := int(keycard[2*i+1]) + 1
+		if haveRunContainers && isRun.contains(uint16(i)) {
+			nb := newRunContainer16()
+			if data, err = nb.unmarshalBinaryUnsafe(data); err != nil {
+				return err
+			}
+			ra.appendContainer(uint16(key), nb, false)
+		} else if card > arrayDefaultMaxSize {
+			nb := new(bitmapContainer)
+			if data, err = nb.unmarshalBinaryUnsafe(data); err != nil {
+				return err
+			}
+			nb.cardinality = card
+			ra.appendContainer(keycard[2*i], nb, false)
+		} else {
+			nb := newArrayContainer()
+			if data, err = nb.unmarshalBinaryUnsafe(data, card); err != nil {
+				return err
+			}
+			ra.appendContainer(keycard[2*i], nb, false)
+		}
+	}
+	return nil
+}
+
 func (ra *roaringArray) hasRunCompression() bool {
 	for _, c := range ra.containers {
 		switch c.(type) {

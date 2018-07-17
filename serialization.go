@@ -68,3 +68,28 @@ func (b *runContainer16) readFrom(stream io.Reader) (int, error) {
 	}
 	return 0, err
 }
+
+func (b *runContainer16) unmarshalBinaryUnsafe(data []byte) ([]byte, error) {
+	b.iv = b.iv[:0]
+	b.card = 0
+	if len(data) < 2 {
+		return data, fmt.Errorf("error roaring.runContainer16.unmarshalBinarySafe: short buffer reading numRuns")
+	}
+	numRuns := binary.LittleEndian.Uint16(data)
+	data = data[2:]
+
+	if len(data) < 2 {
+		return data, fmt.Errorf("error roaring.runContainer16.unmarshalBinarySafe: short buffer reading encRuns")
+	}
+	encRun := byteSliceAsUint16Slice(data[:2*2*numRuns])
+	data = data[2*2*numRuns:]
+
+	for i := 0; i < int(numRuns); i++ {
+		if i > 0 && b.iv[i-1].last() >= encRun[i*2] {
+			return data, fmt.Errorf("error: stored runContainer had runs that were not in sorted order!! (b.iv[i-1=%v].last = %v >= encRun[i=%v] = %v)", i-1, b.iv[i-1].last(), i, encRun[i*2])
+		}
+		b.iv = append(b.iv, interval16{start: encRun[i*2], length: encRun[i*2+1]})
+		b.card += int64(encRun[i*2+1]) + 1
+	}
+	return data, nil
+}

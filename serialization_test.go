@@ -28,14 +28,25 @@ func TestSerializationOfEmptyBitmap(t *testing.T) {
 	if uint64(buf.Len()) != rb.GetSerializedSizeInBytes() {
 		t.Errorf("Bad GetSerializedSizeInBytes")
 	}
-	newrb := NewBitmap()
-	_, err = newrb.ReadFrom(buf)
-	if err != nil {
-		t.Errorf("Failed reading: %v", err)
-	}
-	if !rb.Equals(newrb) {
-		t.Errorf("Cannot retrieve serialized version; rb != newrb")
-	}
+
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if _, err := newrb.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+			t.Errorf("Failed reading: %v", err)
+		}
+		if !rb.Equals(newrb) {
+			t.Errorf("Cannot retrieve serialized version; rb != newrb")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(buf.Bytes()); err != nil {
+			t.Errorf("Failed reading: %v", err)
+		} else if !rb.Equals(newrb) {
+			t.Errorf("Cannot retrieve serialized version; rb != newrb")
+		}
+	})
 }
 
 func TestBase64_036(t *testing.T) {
@@ -61,7 +72,6 @@ func TestBase64_036(t *testing.T) {
 }
 
 func TestSerializationBasic037(t *testing.T) {
-
 	rb := BitmapOf(1, 2, 3, 4, 5, 100, 1000)
 
 	buf := &bytes.Buffer{}
@@ -72,14 +82,24 @@ func TestSerializationBasic037(t *testing.T) {
 	if uint64(buf.Len()) != rb.GetSerializedSizeInBytes() {
 		t.Errorf("Bad GetSerializedSizeInBytes")
 	}
-	newrb := NewBitmap()
-	_, err = newrb.ReadFrom(buf)
-	if err != nil {
-		t.Errorf("Failed reading")
-	}
-	if !rb.Equals(newrb) {
-		t.Errorf("Cannot retrieve serialized version; rb != newrb")
-	}
+
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if _, err := newrb.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+			t.Errorf("Failed reading")
+		} else if !rb.Equals(newrb) {
+			t.Error("Cannot retrieve serialized version; rb != newrb")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(buf.Bytes()); err != nil {
+			t.Errorf("Failed reading")
+		} else if !rb.Equals(newrb) {
+			t.Error("Cannot retrieve serialized version; rb != newrb", rb.ToArray(), newrb.ToArray())
+		}
+	})
 }
 
 func TestSerializationToFile038(t *testing.T) {
@@ -126,15 +146,22 @@ func TestSerializationReadRunsFromFile039(t *testing.T) {
 		panic(err)
 	}
 
-	newrb := NewBitmap()
-	_, err = newrb.ReadFrom(bytes.NewBuffer(by))
-	if err != nil {
-		t.Errorf("Failed reading %s: %s", fn, err)
-	}
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if _, err := newrb.ReadFrom(bytes.NewBuffer(by)); err != nil {
+			t.Errorf("Failed reading %s: %s", fn, err)
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(by); err != nil {
+			t.Errorf("Failed reading %s: %s", fn, err)
+		}
+	})
 }
 
 func TestSerializationBasic4WriteAndReadFile040(t *testing.T) {
-
 	fname := "testdata/all3.classic"
 
 	rb := NewBitmap()
@@ -164,83 +191,124 @@ func TestSerializationBasic4WriteAndReadFile040(t *testing.T) {
 	}
 	fout.Close()
 
-	fin, err := os.Open(fname)
+	buf, err := ioutil.ReadFile(fname)
 	if err != nil {
 		t.Errorf("Failed to Open '%s'", fname)
 	}
-	defer fin.Close()
 
-	newrb := NewBitmap()
-	_, err = newrb.ReadFrom(fin)
-	if err != nil {
-		t.Errorf("Failed reading from '%s': %s", fname, err)
-	}
-	if !rb.Equals(newrb) {
-		t.Errorf("Bad serialization")
-	}
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if _, err := newrb.ReadFrom(bytes.NewReader(buf)); err != nil {
+			t.Errorf("Failed reading from '%s': %s", fname, err)
+		} else if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(buf); err != nil {
+			t.Errorf("Failed reading from '%s': %s", fname, err)
+		} else if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
 }
 
 func TestSerializationFromJava051(t *testing.T) {
 	fname := "testdata/bitmapwithoutruns.bin"
-	newrb := NewBitmap()
-	fin, err := os.Open(fname)
-
+	buf, err := ioutil.ReadFile(fname)
 	if err != nil {
 		t.Errorf("Failed reading")
 	}
-	defer func() {
-		fin.Close()
-	}()
 
-	_, _ = newrb.ReadFrom(fin)
-	fmt.Println(newrb.GetCardinality())
-	rb := NewBitmap()
-	for k := uint32(0); k < 100000; k += 1000 {
-		rb.Add(k)
-	}
-	for k := uint32(100000); k < 200000; k++ {
-		rb.Add(3 * k)
-	}
-	for k := uint32(700000); k < 800000; k++ {
-		rb.Add(k)
-	}
-	fmt.Println(rb.GetCardinality())
-	if !rb.Equals(newrb) {
-		t.Errorf("Bad serialization")
-	}
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		_, _ = newrb.ReadFrom(bytes.NewReader(buf))
+		fmt.Println(newrb.GetCardinality())
+		rb := NewBitmap()
+		for k := uint32(0); k < 100000; k += 1000 {
+			rb.Add(k)
+		}
+		for k := uint32(100000); k < 200000; k++ {
+			rb.Add(3 * k)
+		}
+		for k := uint32(700000); k < 800000; k++ {
+			rb.Add(k)
+		}
+		fmt.Println(rb.GetCardinality())
+		if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		_ = newrb.UnmarshalBinaryUnsafe(buf)
+		fmt.Println(newrb.GetCardinality())
+		rb := NewBitmap()
+		for k := uint32(0); k < 100000; k += 1000 {
+			rb.Add(k)
+		}
+		for k := uint32(100000); k < 200000; k++ {
+			rb.Add(3 * k)
+		}
+		for k := uint32(700000); k < 800000; k++ {
+			rb.Add(k)
+		}
+		fmt.Println(rb.GetCardinality())
+		if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
 
 }
 
 func TestSerializationFromJavaWithRuns052(t *testing.T) {
 	fname := "testdata/bitmapwithruns.bin"
-	newrb := NewBitmap()
-	fin, err := os.Open(fname)
-
+	buf, err := ioutil.ReadFile(fname)
 	if err != nil {
 		t.Errorf("Failed reading")
 	}
-	defer func() {
-		fin.Close()
-	}()
-	_, _ = newrb.ReadFrom(fin)
-	rb := NewBitmap()
-	for k := uint32(0); k < 100000; k += 1000 {
-		rb.Add(k)
-	}
-	for k := uint32(100000); k < 200000; k++ {
-		rb.Add(3 * k)
-	}
-	for k := uint32(700000); k < 800000; k++ {
-		rb.Add(k)
-	}
-	if !rb.Equals(newrb) {
-		t.Errorf("Bad serialization")
-	}
 
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		_, _ = newrb.ReadFrom(bytes.NewReader(buf))
+		rb := NewBitmap()
+		for k := uint32(0); k < 100000; k += 1000 {
+			rb.Add(k)
+		}
+		for k := uint32(100000); k < 200000; k++ {
+			rb.Add(3 * k)
+		}
+		for k := uint32(700000); k < 800000; k++ {
+			rb.Add(k)
+		}
+		if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		_ = newrb.UnmarshalBinaryUnsafe(buf)
+		rb := NewBitmap()
+		for k := uint32(0); k < 100000; k += 1000 {
+			rb.Add(k)
+		}
+		for k := uint32(100000); k < 200000; k++ {
+			rb.Add(3 * k)
+		}
+		for k := uint32(700000); k < 800000; k++ {
+			rb.Add(k)
+		}
+		if !rb.Equals(newrb) {
+			t.Errorf("Bad serialization")
+		}
+	})
 }
 
 func TestSerializationBasic2_041(t *testing.T) {
-
 	rb := BitmapOf(1, 2, 3, 4, 5, 100, 1000, 10000, 100000, 1000000)
 	buf := &bytes.Buffer{}
 	sz := rb.GetSerializedSizeInBytes()
@@ -256,18 +324,27 @@ func TestSerializationBasic2_041(t *testing.T) {
 	if l != buf.Len() {
 		t.Errorf("Bad GetSerializedSizeInBytes")
 	}
-	newrb := NewBitmap()
-	_, err = newrb.ReadFrom(buf)
-	if err != nil {
-		t.Errorf("Failed reading")
-	}
-	if !rb.Equals(newrb) {
-		t.Errorf("Cannot retrieve serialized version")
-	}
+
+	t.Run("safe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if _, err := newrb.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+			t.Errorf("Failed reading")
+		} else if !rb.Equals(newrb) {
+			t.Errorf("Cannot retrieve serialized version")
+		}
+	})
+
+	t.Run("unsafe", func(t *testing.T) {
+		newrb := NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(buf.Bytes()); err != nil {
+			t.Errorf("Failed reading")
+		} else if !rb.Equals(newrb) {
+			t.Errorf("Cannot retrieve serialized version")
+		}
+	})
 }
 
 func TestSerializationBasic3_042(t *testing.T) {
-
 	Convey("roaringarray.writeTo and .readFrom should serialize and unserialize when containing all 3 container types", t, func() {
 		rb := BitmapOf(1, 2, 3, 4, 5, 100, 1000, 10000, 100000, 1000000)
 		for i := 5000000; i < 5000000+2*(1<<16); i++ {
@@ -308,11 +385,18 @@ func TestSerializationBasic3_042(t *testing.T) {
 		}
 
 		newrb := NewBitmap()
-		_, err = newrb.ReadFrom(&buf)
-		if err != nil {
+		if _, err := newrb.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
 			t.Errorf("Failed reading")
 		}
 		c1, c2 := rb.GetCardinality(), newrb.GetCardinality()
+		So(c2, ShouldEqual, c1)
+		So(newrb.Equals(rb), ShouldBeTrue)
+
+		newrb = NewBitmap()
+		if err := newrb.UnmarshalBinaryUnsafe(buf.Bytes()); err != nil {
+			t.Errorf("Failed reading")
+		}
+		c1, c2 = rb.GetCardinality(), newrb.GetCardinality()
 		So(c2, ShouldEqual, c1)
 		So(newrb.Equals(rb), ShouldBeTrue)
 	})
@@ -341,7 +425,6 @@ func TestGobcoding043(t *testing.T) {
 }
 
 func TestSerializationRunContainerMsgpack028(t *testing.T) {
-
 	Convey("runContainer writeTo and readFrom should return logically equivalent containers", t, func() {
 		seed := int64(42)
 		rand.Seed(seed)

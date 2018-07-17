@@ -3,6 +3,7 @@
 package roaring
 
 import (
+	"fmt"
 	"io"
 	"reflect"
 	"unsafe"
@@ -27,11 +28,29 @@ func (ac *arrayContainer) readFrom(stream io.Reader) (int, error) {
 	return io.ReadFull(stream, buf)
 }
 
+func (ac *arrayContainer) unmarshalBinaryUnsafe(data []byte, card int) ([]byte, error) {
+	if len(data) < 2*card {
+		return data, fmt.Errorf("error in roaring.arrayContainer.unmarshalBinaryUnsafe: short buffer reading content")
+	}
+	ac.content = byteSliceAsUint16Slice(data[:2*card])
+	return data[2*card:], nil
+}
+
 func (bc *bitmapContainer) readFrom(stream io.Reader) (int, error) {
 	buf := uint64SliceAsByteSlice(bc.bitmap)
 	n, err := io.ReadFull(stream, buf)
 	bc.computeCardinality()
 	return n, err
+}
+
+func (bc *bitmapContainer) unmarshalBinaryUnsafe(data []byte) ([]byte, error) {
+	size := (1 << 16) / 64
+	if len(data) < size {
+		return data, fmt.Errorf("error in roaring.bitmapContainer.unmarshalBinaryUnsafe: short buffer reading bitmap")
+	}
+	bc.bitmap = byteSliceAsUint64Slice(data[:8*size])
+	bc.computeCardinality()
+	return data[8*size:], nil
 }
 
 func uint64SliceAsByteSlice(slice []uint64) []byte {
